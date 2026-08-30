@@ -1,18 +1,32 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.database import get_db
 from app.core.security import decode_token
-from app.schemas import (
-    UserCreate, UserLogin, UserResponse, Token,
-    TaskCreate, TaskUpdate, TaskResponse,
-    StudySessionCreate, StudySessionComplete, StudySessionResponse,
-    JournalEntryCreate, JournalEntryResponse,
-    DashboardResponse,
-)
-from app.services import AuthService, TaskService, StudySessionService, JournalService, DashboardService
 from app.models import User
-from typing import List
-from fastapi.security import OAuth2PasswordBearer
+from app.schemas import (
+    DashboardResponse,
+    JournalEntryCreate,
+    JournalEntryResponse,
+    StudySessionComplete,
+    StudySessionCreate,
+    StudySessionResponse,
+    TaskCreate,
+    TaskResponse,
+    TaskUpdate,
+    Token,
+    UserCreate,
+    UserLogin,
+    UserResponse,
+)
+from app.services import (
+    AuthService,
+    DashboardService,
+    JournalService,
+    StudySessionService,
+    TaskService,
+)
 
 router = APIRouter()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
@@ -23,6 +37,7 @@ async def get_current_user(
     db: AsyncSession = Depends(get_db),
 ) -> User:
     from app.repositories import UserRepository
+
     payload = decode_token(token)
     if not payload or payload.get("type") != "access":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
@@ -55,6 +70,7 @@ async def login(data: UserLogin, db: AsyncSession = Depends(get_db)):
         "access_token": result["access_token"],
         "refresh_token": result["refresh_token"],
         "token_type": "bearer",
+        "user": result["user"],
     }
 
 
@@ -63,11 +79,14 @@ async def refresh_token(refresh_token: str, db: AsyncSession = Depends(get_db)):
     auth_service = AuthService(db)
     result = await auth_service.refresh_token(refresh_token)
     if not result:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token"
+        )
     return {
         "access_token": result["access_token"],
         "refresh_token": result["refresh_token"],
         "token_type": "bearer",
+        "user": result.get("user"),
     }
 
 
@@ -89,7 +108,7 @@ async def create_task(
     return await service.create(current_user.id, data)
 
 
-@task_router.get("", response_model=List[TaskResponse])
+@task_router.get("", response_model=list[TaskResponse])
 async def list_tasks(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -138,16 +157,17 @@ async def delete_task(
     await service.delete(task)
 
 
-@task_router.post("/reorder/{status}", response_model=List[TaskResponse])
+@task_router.post("/reorder/{column_status}", response_model=list[TaskResponse])
 async def reorder_tasks(
-    status: str,
-    task_ids: List[int],
+    column_status: str,
+    task_ids: list[int],
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     from app.models import TaskStatus
+
     try:
-        task_status = TaskStatus(status)
+        task_status = TaskStatus(column_status)
     except ValueError:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid status")
 
@@ -185,7 +205,7 @@ async def complete_session(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
-@session_router.get("", response_model=List[StudySessionResponse])
+@session_router.get("", response_model=list[StudySessionResponse])
 async def list_sessions(
     limit: int = 10,
     current_user: User = Depends(get_current_user),

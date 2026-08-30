@@ -1,14 +1,24 @@
-from typing import Optional
-from datetime import datetime, timezone
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.repositories import (
-    UserRepository, TaskRepository, StudySessionRepository,
-    JournalRepository, XPRepository, UserStatsRepository
-)
-from app.models import User, Task, StudySession, JournalEntry, XPEvent, TaskStatus, XPSource
-from app.schemas import TaskCreate, TaskUpdate, StudySessionCreate, JournalEntryCreate
-from app.core.security import verify_password, get_password_hash, create_access_token, create_refresh_token
+from datetime import UTC, datetime
 
+from sqlalchemy import and_, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.security import (
+    create_access_token,
+    create_refresh_token,
+    get_password_hash,
+    verify_password,
+)
+from app.models import JournalEntry, StudySession, Task, TaskStatus, User, XPEvent, XPSource
+from app.repositories import (
+    JournalRepository,
+    StudySessionRepository,
+    TaskRepository,
+    UserRepository,
+    UserStatsRepository,
+    XPRepository,
+)
+from app.schemas import JournalEntryCreate, StudySessionCreate, TaskCreate, TaskUpdate
 
 XP_VALUES = {
     XPSource.TASK: 10,
@@ -22,6 +32,7 @@ XP_PER_LEVEL = 100
 class AuthService:
     def __init__(self, db: AsyncSession):
         self.user_repo = UserRepository(db)
+        self.stats_repo = UserStatsRepository(db)
         self.db = db
 
     async def register(self, email: str, name: str, password: str) -> User:
@@ -34,9 +45,11 @@ class AuthService:
             name=name,
             password_hash=get_password_hash(password),
         )
-        return await self.user_repo.create(user)
+        created_user = await self.user_repo.create(user)
+        await self.stats_repo.get_or_create(created_user.id)
+        return created_user
 
-    async def login(self, email: str, password: str) -> Optional[dict]:
+    async def login(self, email: str, password: str) -> dict | None:
         user = await self.user_repo.get_by_email(email)
         if not user or not verify_password(password, user.password_hash):
             return None
@@ -49,8 +62,9 @@ class AuthService:
             "user": user,
         }
 
-    async def refresh_token(self, refresh_token: str) -> Optional[dict]:
+    async def refresh_token(self, refresh_token: str) -> dict | None:
         from app.core.security import decode_token
+
         payload = decode_token(refresh_token)
         if not payload or payload.get("type") != "refresh":
             return None
@@ -62,19 +76,25 @@ class AuthService:
 
         access_token = create_access_token({"sub": str(user.id)})
         new_refresh = create_refresh_token({"sub": str(user.id)})
-        return {"access_token": access_token, "refresh_token": new_refresh}
+        return {"access_token": access_token, "refresh_token": new_refresh, "user": user}
 
 
 class TaskService:
     def __init__(self, db: AsyncSession):
         self.task_repo = TaskRepository(db)
+        self.xp_repo = XPRepository(db)
+        self.stats_repo = UserStatsRepository(db)
         self.db = db
 
     async def create(self, user_id: int, data: TaskCreate) -> Task:
         max_pos_result = await self.db.execute(
-            select(func.max(Task.position)).where(and_(Task.user_id == user_id, Task.status == TaskStatus.BACKLOG))
+            select(func.max(Task.position)).where(
+                and_(Task.user_id == user_id, Task.status == TaskStatus.BACKLOG)
+            )
         )
-        max_pos = max_pos_result.scalar() or -1
+        max_pos = max_pos_result.scalar()
+        if max_pos is None:
+            max_pos = -1
 
         task = Task(
             user_id=user_id,
@@ -88,20 +108,39 @@ class TaskService:
     async def get_all(self, user_id: int) -> list[Task]:
         return await self.task_repo.get_all_by_user(user_id)
 
-    async def get_by_id(self, task_id: int, user_id: int) -> Optional[Task]:
+    async def get_by_id(self, task_id: int, user_id: int) -> Task | None:
         return await self.task_repo.get_by_id(task_id, user_id)
 
     async def update(self, task: Task, data: TaskUpdate) -> Task:
+        was_done = task.status == TaskStatus.DONE
+        will_be_done = data.status == TaskStatus.DONE if data.status is not None else was_done
+
+        if not was_done and will_be_done:
+            task.completed_at = datetime.now(UTC)
+            xp_event = XPEvent(
+                user_id=task.user_id,
+                amount=XP_VALUES[XPSource.TASK],
+                source=XPSource.TASK,
+            )
+            await self.xp_repo.create(xp_event)
+            await self.stats_repo.add_xp(task.user_id, XP_VALUES[XPSource.TASK])
+            await self.stats_repo.update_streak(task.user_id)
+        elif was_done and data.status is not None and data.status != TaskStatus.DONE:
+            task.completed_at = None
+
         return await self.task_repo.update(task, data)
 
     async def delete(self, task: Task) -> None:
         await self.task_repo.delete(task)
 
-    async def reorder_by_status(self, user_id: int, status: TaskStatus, task_ids: list[int]) -> list[Task]:
+    async def reorder_by_status(
+        self, user_id: int, status: TaskStatus, task_ids: list[int]
+    ) -> list[Task]:
         tasks = []
         for i, task_id in enumerate(task_ids):
             task = await self.task_repo.get_by_id(task_id, user_id)
-            if task and task.status == status:
+            if task:
+                task.status = status
                 task.position = i
                 tasks.append(task)
         await self.db.commit()
@@ -136,7 +175,7 @@ class StudySessionService:
         if session.completed:
             raise ValueError("Session already completed")
 
-        session.ended_at = datetime.now(timezone.utc)
+        session.ended_at = datetime.now(UTC)
         session.duration_min = duration_min
         session.completed = True
 
@@ -149,9 +188,8 @@ class StudySessionService:
             source=XPSource.POMODORO,
         )
         await self.xp_repo.create(xp_event)
-
+        await self.stats_repo.add_xp(user_id, XP_VALUES[XPSource.POMODORO])
         await self.stats_repo.update_streak(user_id)
-        await self._update_level(user_id)
 
         return session
 
@@ -160,14 +198,6 @@ class StudySessionService:
 
     async def get_weekly_minutes(self, user_id: int) -> int:
         return await self.session_repo.get_weekly_minutes(user_id)
-
-    async def _update_level(self, user_id: int) -> None:
-        total_xp = await self.xp_repo.get_total_xp(user_id)
-        stats = await self.stats_repo.get_or_create(user_id)
-        new_level = (total_xp // XP_PER_LEVEL) + 1
-        if new_level != stats.level:
-            stats.level = new_level
-            await self.db.commit()
 
 
 class JournalService:
@@ -202,7 +232,7 @@ class JournalService:
             source=XPSource.JOURNAL,
         )
         await self.xp_repo.create(xp_event)
-
+        await self.stats_repo.add_xp(user_id, XP_VALUES[XPSource.JOURNAL])
         await self.stats_repo.update_streak(user_id)
 
         return entry
@@ -234,6 +264,3 @@ class DashboardService:
             "recent_tasks": recent_tasks[:5],
             "weekly_minutes": weekly_minutes,
         }
-
-
-from sqlalchemy import select, func, and_

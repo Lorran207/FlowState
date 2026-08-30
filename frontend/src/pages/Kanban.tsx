@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   DndContext,
@@ -18,8 +18,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { tasksApi, sessionsApi, journalApi } from '../lib/api';
-import type { Task, StudySession } from '../types';
-import { TaskStatus } from '../types';
+import type { Task, StudySession, TaskStatus } from '../types';
 import PomodoroTimer from '../components/PomodoroTimer';
 import JournalModal from '../components/JournalModal';
 
@@ -32,11 +31,12 @@ const COLUMNS: { id: TaskStatus; title: string; color: string }[] = [
 
 interface SortableTaskProps {
   task: Task;
-  tasks: Task[];
-  onReorder: (tasks: Task[]) => void;
+  onStartSession: (task: Task) => void;
+  onMoveStatus: (task: Task, nextStatus: TaskStatus) => void;
+  onDelete: (id: number) => void;
 }
 
-function SortableTask({ task, tasks, onReorder }: SortableTaskProps) {
+function SortableTask({ task, onStartSession, onMoveStatus, onDelete }: SortableTaskProps) {
   const {
     attributes,
     listeners,
@@ -52,57 +52,106 @@ function SortableTask({ task, tasks, onReorder }: SortableTaskProps) {
     opacity: isDragging ? 0.5 : 1,
   };
 
+  const nextStatuses: Record<TaskStatus, TaskStatus[]> = {
+    backlog: ['today', 'doing'],
+    today: ['doing', 'done'],
+    doing: ['done', 'backlog'],
+    done: ['backlog'],
+  };
+
   return (
     <div
       ref={setNodeRef}
       style={style}
-      className={`bg-white rounded-lg shadow-sm p-4 mb-2 cursor-grab ${
+      className={`bg-white rounded-lg shadow-sm p-4 mb-3 border border-gray-200 ${
         isDragging ? 'shadow-lg ring-2 ring-blue-500' : ''
       }`}
     >
-      <button
-        {...attributes}
-        {...listeners}
-        className="w-full text-left focus:outline-none"
-      >
+      <div {...attributes} {...listeners} className="cursor-grab mb-2">
         <h4 className="font-medium text-gray-900">{task.title}</h4>
         {task.description && (
           <p className="text-sm text-gray-500 mt-1 line-clamp-2">{task.description}</p>
         )}
-      </button>
+      </div>
+
+      <div className="flex items-center justify-between mt-3 pt-2 border-t border-gray-100 text-xs">
+        <div className="flex gap-1 flex-wrap">
+          {nextStatuses[task.status].map((st) => (
+            <button
+              key={st}
+              onClick={() => onMoveStatus(task, st)}
+              className="px-2 py-0.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded font-medium capitalize"
+            >
+              → {st}
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-2">
+          {task.status !== 'done' && (
+            <button
+              onClick={() => onStartSession(task)}
+              title="Focar com Pomodoro"
+              className="px-2 py-0.5 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded font-medium"
+            >
+              ⏱️ Focar
+            </button>
+          )}
+          <button
+            onClick={() => onDelete(task.id)}
+            title="Excluir"
+            className="text-gray-400 hover:text-red-500"
+          >
+            ✕
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
 
-function Column({ tasks, status, onReorder, onStartSession }: {
+function Column({
+  tasks,
+  status,
+  onStartSession,
+  onMoveStatus,
+  onDelete,
+}: {
   tasks: Task[];
   status: TaskStatus;
-  onReorder: (tasks: Task[]) => void;
   onStartSession: (task: Task) => void;
+  onMoveStatus: (task: Task, nextStatus: TaskStatus) => void;
+  onDelete: (id: number) => void;
 }) {
   const columnConfig = COLUMNS.find((c) => c.id === status)!;
 
   return (
-    <div className={`flex-1 min-w-[280px] ${columnConfig.color} rounded-lg p-3`}>
+    <div className={`flex-1 min-w-[280px] ${columnConfig.color} rounded-lg p-3 flex flex-col`}>
       <h3 className="font-semibold text-gray-700 mb-3 flex items-center justify-between">
-        {columnConfig.title}
-        <span className="text-sm text-gray-500">{tasks.length}</span>
+        <span>{columnConfig.title}</span>
+        <span className="text-xs bg-white bg-opacity-70 px-2 py-0.5 rounded-full text-gray-600">
+          {tasks.length}
+        </span>
       </h3>
       <SortableContext
         items={tasks.map((t) => t.id)}
         strategy={verticalListSortingStrategy}
       >
-        {tasks.map((task) => (
-          <SortableTask
-            key={task.id}
-            task={task}
-            tasks={tasks}
-            onReorder={onReorder}
-          />
-        ))}
-        {tasks.length === 0 && (
-          <div className="text-center text-gray-400 py-8 text-sm">Vazio</div>
-        )}
+        <div className="flex-1">
+          {tasks.map((task) => (
+            <SortableTask
+              key={task.id}
+              task={task}
+              onStartSession={onStartSession}
+              onMoveStatus={onMoveStatus}
+              onDelete={onDelete}
+            />
+          ))}
+          {tasks.length === 0 && (
+            <div className="text-center text-gray-400 py-8 text-sm border-2 border-dashed border-gray-200 rounded-lg">
+              Nenhuma tarefa
+            </div>
+          )}
+        </div>
       </SortableContext>
     </div>
   );
@@ -113,9 +162,9 @@ export default function Kanban() {
   const [activeSession, setActiveSession] = useState<StudySession | null>(null);
   const [journalSessionId, setJournalSessionId] = useState<number | null>(null);
 
-  const { data: tasks = [], isLoading, refetch } = useQuery({
+  const { data: tasks = [], isLoading, refetch } = useQuery<Task[]>({
     queryKey: ['tasks'],
-    queryFn: () => tasksApi.list(),
+    queryFn: async () => (await tasksApi.list()).data,
   });
 
   const createTaskMutation = useMutation({
@@ -127,6 +176,14 @@ export default function Kanban() {
 
   const updateTaskMutation = useMutation({
     mutationFn: ({ id, data }: { id: number; data: Partial<Task> }) => tasksApi.update(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+  });
+
+  const deleteTaskMutation = useMutation({
+    mutationFn: (id: number) => tasksApi.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
     },
@@ -163,24 +220,20 @@ export default function Kanban() {
     const activeTask = tasks.find((t) => t.id === active.id);
     const overTask = tasks.find((t) => t.id === over.id);
 
-    if (!activeTask || !overTask || activeTask.status !== overTask.status) return;
+    if (!activeTask || !overTask) return;
 
-    const oldIndex = tasks.findIndex((t) => t.id === active.id);
-    const newIndex = tasks.findIndex((t) => t.id === over.id);
-    const newTasks = arrayMove(tasks, oldIndex, newIndex);
+    if (activeTask.status === overTask.status) {
+      const colTasks = tasks.filter((t) => t.status === activeTask.status);
+      const oldIndex = colTasks.findIndex((t) => t.id === active.id);
+      const newIndex = colTasks.findIndex((t) => t.id === over.id);
+      const reordered = arrayMove(colTasks, oldIndex, newIndex);
 
-    await updateTaskMutation.mutateAsync({
-      id: active.id,
-      data: { position: newIndex },
-    });
-
-    for (let i = 0; i < newTasks.length; i++) {
-      if (newTasks[i].position !== i) {
-        await updateTaskMutation.mutateAsync({
-          id: newTasks[i].id,
-          data: { position: i },
-        });
-      }
+      await tasksApi.reorder(activeTask.status, reordered.map((t) => t.id));
+    } else {
+      await updateTaskMutation.mutateAsync({
+        id: activeTask.id,
+        data: { status: overTask.status },
+      });
     }
 
     refetch();
@@ -201,8 +254,14 @@ export default function Kanban() {
     }
   };
 
+  const handleMoveStatus = (task: Task, nextStatus: TaskStatus) => {
+    updateTaskMutation.mutate({ id: task.id, data: { status: nextStatus } });
+  };
+
   const groupedTasks = COLUMNS.reduce((acc, col) => {
-    acc[col.id] = tasks.filter((t) => t.status === col.id).sort((a, b) => a.position - b.position);
+    acc[col.id] = (Array.isArray(tasks) ? tasks : [])
+      .filter((t) => t.status === col.id)
+      .sort((a, b) => a.position - b.position);
     return acc;
   }, {} as Record<TaskStatus, Task[]>);
 
@@ -299,8 +358,9 @@ export default function Kanban() {
                 key={col.id}
                 tasks={groupedTasks[col.id]}
                 status={col.id}
-                onReorder={(newTasks) => {}}
                 onStartSession={(task) => startSessionMutation.mutate(task.id)}
+                onMoveStatus={handleMoveStatus}
+                onDelete={(id) => deleteTaskMutation.mutate(id)}
               />
             ))}
           </div>

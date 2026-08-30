@@ -1,6 +1,7 @@
-from pydantic import BaseModel, EmailStr, Field
-from typing import Optional
 from datetime import datetime
+
+from pydantic import BaseModel, EmailStr, Field
+
 from app.models import TaskStatus, XPSource
 
 
@@ -30,15 +31,16 @@ class Token(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
+    user: UserResponse | None = None
 
 
 class TokenData(BaseModel):
-    user_id: Optional[int] = None
+    user_id: int | None = None
 
 
 class TaskBase(BaseModel):
     title: str = Field(min_length=1, max_length=200)
-    description: Optional[str] = None
+    description: str | None = None
 
 
 class TaskCreate(TaskBase):
@@ -46,10 +48,10 @@ class TaskCreate(TaskBase):
 
 
 class TaskUpdate(BaseModel):
-    title: Optional[str] = Field(default=None, min_length=1, max_length=200)
-    description: Optional[str] = None
-    status: Optional[TaskStatus] = None
-    position: Optional[int] = None
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = None
+    status: TaskStatus | None = None
+    position: int | None = None
 
 
 class TaskResponse(TaskBase):
@@ -58,14 +60,14 @@ class TaskResponse(TaskBase):
     status: TaskStatus
     position: int
     created_at: datetime
-    completed_at: Optional[datetime] = None
+    completed_at: datetime | None = None
 
     class Config:
         from_attributes = True
 
 
 class StudySessionBase(BaseModel):
-    task_id: Optional[int] = None
+    task_id: int | None = None
 
 
 class StudySessionCreate(StudySessionBase):
@@ -80,8 +82,8 @@ class StudySessionResponse(StudySessionBase):
     id: int
     user_id: int
     started_at: datetime
-    ended_at: Optional[datetime] = None
-    duration_min: Optional[int] = None
+    ended_at: datetime | None = None
+    duration_min: int | None = None
     completed: bool
 
     class Config:
@@ -122,7 +124,7 @@ class UserStatsResponse(BaseModel):
     level: int
     streak: int
     longest_streak: int
-    last_active_date: Optional[datetime] = None
+    last_active_date: datetime | None = None
 
 
 class DashboardResponse(BaseModel):

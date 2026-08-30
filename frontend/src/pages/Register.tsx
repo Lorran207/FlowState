@@ -29,8 +29,9 @@ export default function Register() {
 
     setLoading(true);
     try {
-      const response = await authApi.register(email, name, password);
-      setAuth(response.data.user, response.data);
+      await authApi.register(email, name, password);
+      const loginRes = await authApi.login(email, password);
+      setAuth(loginRes.data.user, loginRes.data);
       navigate('/');
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Erro ao criar conta');

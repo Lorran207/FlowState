@@ -5,12 +5,14 @@ export interface User {
   created_at: string;
 }
 
+export type TaskStatus = 'backlog' | 'today' | 'doing' | 'done';
+
 export interface Task {
   id: number;
   user_id: number;
   title: string;
   description: string | null;
-  status: 'backlog' | 'today' | 'doing' | 'done';
+  status: TaskStatus;
   position: number;
   created_at: string;
   completed_at: string | null;

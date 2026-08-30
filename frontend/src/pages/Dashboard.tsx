@@ -9,9 +9,9 @@ export default function Dashboard() {
   const { user, logout } = useAuthStore();
   const [weeklyMinutes, setWeeklyMinutes] = useState(0);
 
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error } = useQuery<DashboardData>({
     queryKey: ['dashboard'],
-    queryFn: () => dashboardApi.get(),
+    queryFn: async () => (await dashboardApi.get()).data,
   });
 
   useEffect(() => {
@@ -145,7 +145,7 @@ export default function Dashboard() {
                 </svg>
               </div>
             </div>
-            <p className="text-sm text-gray-500 mt-2">Próximo nível: {100 - (stats?.xp_total % 100)} XP</p>
+            <p className="text-sm text-gray-500 mt-2">Próximo nível: {100 - ((stats?.xp_total ?? 0) % 100)} XP</p>
           </div>
         </div>
 

@@ -6,7 +6,7 @@ interface JournalModalProps {
   onClose: () => void;
 }
 
-export default function JournalModal({ sessionId, onSubmit, onClose }: JournalModalProps) {
+export default function JournalModal({ onSubmit, onClose }: JournalModalProps) {
   const [content, setContent] = useState('');
   const [submitting, setSubmitting] = useState(false);
 

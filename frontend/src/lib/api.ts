@@ -108,7 +108,7 @@ export const tasksApi = {
   list: () => api.get('/tasks'),
   create: (data: { title: string; description?: string }) => api.post('/tasks', data),
   get: (id: number) => api.get(`/tasks/${id}`),
-  update: (id: number, data: Partial<{ title: string; description: string; status: string; position: number }>) =>
+  update: (id: number, data: Partial<{ title: string; description: string | null; status: string; position: number }>) =>
     api.patch(`/tasks/${id}`, data),
   delete: (id: number) => api.delete(`/tasks/${id}`),
   reorder: (status: string, task_ids: number[]) => api.post(`/tasks/reorder/${status}`, task_ids),

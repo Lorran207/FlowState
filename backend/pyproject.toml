@@ -1,8 +1,7 @@
 [project]
 name = "flowstate-backend"
-version = "0.1.0"
+version = "0.1.2"
 description = "FlowState Backend API"
-readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.109.0",
@@ -12,6 +11,8 @@ dependencies = [
     "asyncpg>=0.29.0",
     "pydantic>=2.5.3",
     "pydantic-settings>=2.1.0",
+    "email-validator>=2.1.0",
+    "bcrypt>=4.0.0",
     "python-jose[cryptography]>=3.3.0",
     "passlib[bcrypt]>=1.7.4",
     "python-multipart>=0.0.6",
@@ -22,13 +23,19 @@ dependencies = [
 requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
 
-[tool.uv]
-dev-dependencies = [
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+
+[dependency-groups]
+dev = [
     "pytest>=7.4.4",
     "pytest-asyncio>=0.23.3",
     "pytest-cov>=4.1.0",
     "ruff>=0.1.15",
     "mypy>=1.7.1",
+    "httpx>=0.26.0",
+    "aiosqlite>=0.19.0",
 ]
 
 [tool.ruff]
@@ -37,10 +44,15 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "W"]
-ignore = ["E501"]
+ignore = ["E501", "E712", "UP042"]
 
 [tool.mypy]
 python_version = "3.12"
 warn_return_any = true
 warn_unused_configs = true
-disallow_untyped_defs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

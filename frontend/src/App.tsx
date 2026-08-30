@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from './hooks/useAuthStore';
 import { authApi } from './lib/api';
@@ -12,10 +13,14 @@ function App() {
 
   const initAuth = async () => {
     const token = localStorage.getItem('access_token');
-    if (token && !isAuthenticated) {
+    if (token) {
       try {
         const response = await authApi.me();
-        setAuth(response.data, { access_token: token, refresh_token: localStorage.getItem('refresh_token') || '', token_type: 'bearer' });
+        setAuth(response.data, {
+          access_token: token,
+          refresh_token: localStorage.getItem('refresh_token') || '',
+          token_type: 'bearer',
+        });
       } catch {
         localStorage.removeItem('access_token');
         localStorage.removeItem('refresh_token');
@@ -24,7 +29,7 @@ function App() {
     setLoading(false);
   };
 
-  React.useEffect(() => {
+  useEffect(() => {
     initAuth();
   }, []);
 
@@ -41,22 +46,14 @@ function App() {
       <Routes>
         <Route path="/login" element={isAuthenticated ? <Navigate to="/" replace /> : <Login />} />
         <Route path="/register" element={isAuthenticated ? <Navigate to="/" replace /> : <Register />} />
-        <Route
-          path="/*"
-          element={
-            <ProtectedRoute>
-              <Routes>
-                <Route path="/" element={<Dashboard />} />
-                <Route path="/kanban" element={<Kanban />} />
-              </Routes>
-            </ProtectedRoute>
-          }
-        />
+        <Route element={<ProtectedRoute />}>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/kanban" element={<Kanban />} />
+        </Route>
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
   );
 }
-
-import React from 'react';
 
 export default App;

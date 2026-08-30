@@ -3,7 +3,7 @@ import { useEffect, useState, useRef } from 'react';
 interface PomodoroTimerProps {
   session: {
     id: number;
-    task_id?: number;
+    task_id?: number | null;
     started_at: string;
   };
   onComplete: (duration: number) => void;
@@ -15,35 +15,36 @@ const POMODORO_DURATION = 25 * 60;
 export default function PomodoroTimer({ session, onComplete, onCancel }: PomodoroTimerProps) {
   const [timeLeft, setTimeLeft] = useState(POMODORO_DURATION);
   const [isRunning, setIsRunning] = useState(true);
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
-  const startTimeRef = useRef(Date.now());
+  const endTimeRef = useRef<number>(Date.now() + POMODORO_DURATION * 1000);
+  const startTimeRef = useRef<number>(Date.now());
+  const pausedTimeLeftRef = useRef<number>(POMODORO_DURATION);
 
   useEffect(() => {
     startTimeRef.current = Date.now();
+    endTimeRef.current = Date.now() + POMODORO_DURATION * 1000;
     setTimeLeft(POMODORO_DURATION);
     setIsRunning(true);
   }, []);
 
   useEffect(() => {
+    let interval: any = null;
+
     if (isRunning) {
-      intervalRef.current = setInterval(() => {
-        setTimeLeft((prev) => {
-          if (prev <= 1) {
-            clearInterval(intervalRef.current!);
-            setIsRunning(false);
-            const duration = Math.round((Date.now() - startTimeRef.current) / 1000 / 60);
-            onComplete(Math.max(1, duration));
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    } else if (intervalRef.current) {
-      clearInterval(intervalRef.current);
+      interval = setInterval(() => {
+        const remaining = Math.max(0, Math.ceil((endTimeRef.current - Date.now()) / 1000));
+        setTimeLeft(remaining);
+
+        if (remaining <= 0) {
+          clearInterval(interval);
+          setIsRunning(false);
+          const duration = Math.round((Date.now() - startTimeRef.current) / 1000 / 60);
+          onComplete(Math.max(1, duration));
+        }
+      }, 500);
     }
 
     return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
+      if (interval) clearInterval(interval);
     };
   }, [isRunning, onComplete]);
 
@@ -53,9 +54,13 @@ export default function PomodoroTimer({ session, onComplete, onCancel }: Pomodor
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const handlePause = () => setIsRunning(false);
+  const handlePause = () => {
+    pausedTimeLeftRef.current = timeLeft;
+    setIsRunning(false);
+  };
+
   const handleResume = () => {
-    startTimeRef.current = Date.now() - (POMODORO_DURATION - timeLeft) * 1000;
+    endTimeRef.current = Date.now() + pausedTimeLeftRef.current * 1000;
     setIsRunning(true);
   };
 
@@ -89,7 +94,7 @@ export default function PomodoroTimer({ session, onComplete, onCancel }: Pomodor
               strokeDasharray={2 * Math.PI * 88}
               strokeDashoffset={2 * Math.PI * 88 * (1 - timeLeft / POMODORO_DURATION)}
               strokeLinecap="round"
-              className="transition-all duration-1000 ease-linear"
+              className="transition-all duration-500 ease-linear"
             />
           </svg>
           <div className="absolute inset-0 flex items-center justify-center">
