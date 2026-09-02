@@ -45,48 +45,136 @@ flowstate/
 ## Como rodar localmente
 
 ### Pré-requisitos
-- Docker e Docker Compose
-- Node.js 20+ (para desenvolvimento frontend)
-- Python 3.12+ (para desenvolvimento backend)
 
-### Com Docker (recomendado)
+- Docker e Docker Compose
+- Node.js 20+
+- Python 3.12+
+- [uv](https://docs.astral.sh/uv/) (recomendado para o backend) ou `pip` + `venv`
+
+### Configuração inicial (primeira vez)
 
 ```bash
-# Copie as variáveis de ambiente
+cd FlowState
 cp .env.example .env
 
-# Suba os containers
+cd frontend && npm install && cd ..
+cd backend && uv sync && cd ..
+```
+
+### Permissão do Docker (Linux)
+
+Se `docker compose` falhar com `permission denied` no socket do Docker, adicione seu usuário ao grupo `docker` e faça logout/login:
+
+```bash
+sudo usermod -aG docker $USER
+```
+
+Alternativa temporária: prefixe os comandos Docker com `sudo`.
+
+---
+
+### Opção A — Tudo com Docker (mais simples)
+
+Sobe Postgres, backend e frontend de uma vez:
+
+```bash
+cd FlowState
 docker compose up -d
-
-# Acesse:
-# Frontend: http://localhost:5173
-# Backend API: http://localhost:8000
-# Docs da API: http://localhost:8000/docs
 ```
 
-### Desenvolvimento Backend
+Aguarde alguns segundos e acesse:
+
+| Serviço | URL |
+|---------|-----|
+| Frontend | http://localhost:5173 |
+| Backend API | http://localhost:8000 |
+| Docs da API | http://localhost:8000/docs |
+
+Para ver os logs ou parar:
 
 ```bash
-cd backend
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
-# ou com uv: uv sync --frozen
-
-# Rode as migrations
-alembic upgrade head
-
-# Inicie o servidor
-uvicorn app.main:app --reload
+docker compose logs -f      # acompanhar logs
+docker compose down         # parar tudo
 ```
 
-### Desenvolvimento Frontend
+---
+
+### Opção B — Desenvolvimento manual (3 terminais)
+
+Útil quando você quer hot-reload no backend e frontend, mas ainda usa Docker só para o banco.
+
+#### Terminal 1 — Banco de dados
 
 ```bash
-cd frontend
-npm install
+cd FlowState
+docker compose up -d postgres
+```
+
+> O serviço no `docker-compose.yml` se chama **`postgres`** (não `db`).
+> Aguarde ~5 segundos para o Postgres ficar pronto.
+
+#### Terminal 2 — Backend
+
+```bash
+cd FlowState/backend
+uv run alembic upgrade head
+uv run uvicorn app.main:app --reload --port 8000
+```
+
+Docs da API: http://localhost:8000/docs
+
+#### Terminal 3 — Frontend
+
+```bash
+cd FlowState/frontend
 npm run dev
 ```
+
+App: http://localhost:5173
+
+---
+
+### Opção C — Só o banco no Docker, backend com pip
+
+Se preferir não usar `uv`:
+
+```bash
+cd FlowState
+docker compose up -d postgres
+
+cd backend
+python -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -e ".[dev]"
+alembic upgrade head
+uvicorn app.main:app --reload --port 8000
+```
+
+---
+
+### Fluxo para testar (screenshots / demo)
+
+1. **Cadastro** → http://localhost:5173/register
+2. **Login** → http://localhost:5173/login
+3. **Dashboard** → http://localhost:5173/
+4. **Kanban** → http://localhost:5173/kanban
+   - Crie uma tarefa
+   - Mova entre colunas clicando nos botões
+   - Clique em **Focar** para abrir o Pomodoro
+   - Conclua o timer e escreva no diário
+5. **Dashboard** novamente → verifique XP e streak atualizados
+
+---
+
+### Problemas comuns
+
+| Sintoma | Causa provável | Solução |
+|---------|----------------|---------|
+| `permission denied` no Docker | Usuário fora do grupo `docker` | `sudo usermod -aG docker $USER` e relogar |
+| `no such service: db` | Nome do serviço incorreto | Use `postgres`: `docker compose up -d postgres` |
+| `Connection refused` no backend | Postgres não está rodando | Suba o banco antes: `docker compose up -d postgres` |
+| `No 'script_location' key found` (Alembic) | `alembic.ini` incompleto | Já corrigido no repositório; faça `git pull` |
+| Frontend abre mas API falha | Backend parado ou porta 8000 ocupada | Confira `curl http://localhost:8000/health` |
 
 ## API Endpoints
 
