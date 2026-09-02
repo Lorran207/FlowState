@@ -21,6 +21,18 @@ class XPSource(str, enum.Enum):
     JOURNAL = "journal"
 
 
+task_status_enum = SQLEnum(
+    TaskStatus,
+    name="taskstatus",
+    values_callable=lambda enum_cls: [member.value for member in enum_cls],
+)
+xp_source_enum = SQLEnum(
+    XPSource,
+    name="xpsource",
+    values_callable=lambda enum_cls: [member.value for member in enum_cls],
+)
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -55,7 +67,7 @@ class Task(Base):
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[TaskStatus] = mapped_column(
-        SQLEnum(TaskStatus), default=TaskStatus.BACKLOG, nullable=False
+        task_status_enum, default=TaskStatus.BACKLOG, nullable=False
     )
     position: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -114,7 +126,7 @@ class XPEvent(Base):
         Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
     amount: Mapped[int] = mapped_column(Integer, nullable=False)
-    source: Mapped[XPSource] = mapped_column(SQLEnum(XPSource), nullable=False)
+    source: Mapped[XPSource] = mapped_column(xp_source_enum, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     user: Mapped["User"] = relationship(back_populates="xp_events")
