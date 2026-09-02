@@ -2,11 +2,14 @@
 
 Sistema de produtividade e aprendizado para desenvolvedores — Kanban + Pomodoro + Journal + GitHub Integration.
 
+> "Não rastreie o que você estudou. Rastreie o que você consegue construir."
+
 ## Stack
 
 - **Frontend**: React + TypeScript + Vite + Tailwind CSS + Zustand + TanStack Query
 - **Backend**: FastAPI + SQLAlchemy 2.0 + Alembic + PostgreSQL
-- **Auth**: JWT (access + refresh tokens)
+- **Auth**: JWT (access + refresh tokens) + OAuth2 GitHub
+- **Jobs**: APScheduler (sync de commits em background)
 - **Deploy**: Docker Compose (local) → Render (backend) + Vercel (frontend)
 
 ## Estrutura
@@ -41,6 +44,16 @@ flowstate/
 - [x] XP + Streak (simples)
 - [x] Dashboard mínimo
 - [x] Docker Compose + CI + deploy
+
+## Roadmap V0.2 (GitHub Integration)
+
+- [x] OAuth2 GitHub (login/cadastro com GitHub + vincular conta existente)
+- [x] Sync de commits via GitHub Events API (`httpx`)
+- [x] Background job com APScheduler (intervalo configurável, default 30 min)
+- [x] Sincronização manual sob demanda (`POST /github/sync`)
+- [x] Feed de atividades unificado (pomodoros + journals + commits)
+- [x] Heatmap estilo GitHub Contributions (dias com ≥50 min de foco ganham destaque)
+- [x] Persistência de commits deduplicados por SHA
 
 ## Como rodar localmente
 
@@ -203,16 +216,34 @@ uvicorn app.main:app --reload --port 8000
 ### Dashboard
 - `GET /dashboard` - Dados do dashboard
 
+### GitHub (OAuth + Sync)
+- `GET /auth/github/authorize` - URL de autorização do GitHub (aceita `?t=<access_token>` para vincular à conta logada)
+- `GET /auth/github/callback` - Callback do OAuth (redireciona para `{FRONTEND_URL}/auth/callback` com os tokens)
+- `GET /github/status` - Status da conexão (username + nº de commits)
+- `POST /github/sync` - Sincroniza commits agora (além do job em background)
+- `DELETE /github/disconnect` - Desconecta o GitHub (exige senha definida)
+- `GET /github/commits?limit=N` - Commits recentes importados
+
+### Activity (Feed + Heatmap)
+- `GET /activity/feed?days=14&limit=50` - Feed unificado: pomodoros, journals e commits
+- `GET /activity/heatmap?days=365` - Atividade por dia (count + minutos) para o heatmap
+
 ## Modelo de Dados
 
 ```sql
-users          (id, email, name, password_hash, created_at)
+users          (id, email, name, password_hash?, github_id?, github_username?,
+                github_access_token?, created_at)
 tasks          (id, user_id, title, description, status, position, created_at, completed_at)
 study_sessions (id, user_id, task_id?, started_at, ended_at, duration_min, completed)
 journal_entries(id, user_id, session_id, content, created_at)
 xp_events      (id, user_id, amount, source[task|pomodoro|journal], created_at)
 user_stats     (user_id, xp_total, level, streak, longest_streak, last_active_date)
+commits        (id, user_id, sha, message, repo_name, url, committed_at, created_at)
+               -- únicos por (user_id, sha); sincronizados do GitHub
 ```
+
+> `password_hash` é opcional para contas criadas via OAuth (login apenas pelo GitHub).
+> Nesses casos, `DELETE /github/disconnect` é bloqueado até o usuário definir uma senha.
 
 ## XP Values
 
@@ -230,8 +261,26 @@ GitHub Actions roda em todo push:
 - Backend: ruff (lint) + mypy (types) + pytest
 - Frontend: eslint + tsc + build
 
+## Configurar o GitHub OAuth (V0.2)
+
+1. Crie um OAuth App em <https://github.com/settings/developers>:
+   - **Application name**: FlowState (dev)
+   - **Homepage URL**: `http://localhost:5173`
+   - **Authorization callback URL**: `http://localhost:8000/auth/github/callback`
+2. Preencha `GITHUB_CLIENT_ID` e `GITHUB_CLIENT_SECRET` no `.env`.
+3. Rode a migration e suba os serviços:
+
+```bash
+cd backend && uv run alembic upgrade head && cd ..
+docker compose up -d
+```
+
+O sync de commits roda em background via APScheduler a cada `GITHUB_SYNC_INTERVAL_MINUTES`
+(default 30) e também pode ser disparado manualmente pelo botão **Sincronizar commits** no
+dashboard. O fluxo usa a GitHub Events API (`/users/{username}/events` → `PushEvent`) e
+importa commits deduplicados por SHA.
+
 ## Próximas Versões
 
-- **V0.2**: OAuth2 GitHub + Sync de commits + Heatmap
 - **V0.3**: Skills + Flashcards (SM-2) + Badges
 - **V0.4**: Redis + Testes + README + Artigo técnico

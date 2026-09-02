@@ -3,7 +3,16 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import JournalEntry, StudySession, Task, TaskStatus, User, UserStats, XPEvent
+from app.models import (
+    Commit,
+    JournalEntry,
+    StudySession,
+    Task,
+    TaskStatus,
+    User,
+    UserStats,
+    XPEvent,
+)
 from app.schemas import TaskUpdate
 
 
@@ -24,6 +33,24 @@ class UserRepository:
     async def get_by_id(self, user_id: int) -> User | None:
         result = await self.db.execute(select(User).where(User.id == user_id))
         return result.scalar_one_or_none()
+
+    async def get_by_github_id(self, github_id: str) -> User | None:
+        result = await self.db.execute(select(User).where(User.github_id == github_id))
+        return result.scalar_one_or_none()
+
+    async def get_github_connected(self) -> list[User]:
+        result = await self.db.execute(
+            select(User).where(
+                User.github_access_token.is_not(None),
+                User.github_username.is_not(None),
+            )
+        )
+        return list(result.scalars().all())
+
+    async def update(self, user: User) -> User:
+        await self.db.commit()
+        await self.db.refresh(user)
+        return user
 
 
 class TaskRepository:
@@ -71,6 +98,23 @@ class TaskRepository:
         for i, task in enumerate(tasks):
             task.position = i
         await self.db.commit()
+
+    async def get_daily_completed_counts(
+        self, user_id: int, since: datetime
+    ) -> list[tuple[str, int]]:
+        day = func.date(Task.completed_at)
+        result = await self.db.execute(
+            select(day, func.count(Task.id))
+            .where(
+                and_(
+                    Task.user_id == user_id,
+                    Task.completed_at.is_not(None),
+                    Task.completed_at >= since,
+                )
+            )
+            .group_by(day)
+        )
+        return [(str(row[0]), int(row[1])) for row in result.all()]
 
 
 class StudySessionRepository:
@@ -121,6 +165,43 @@ class StudySessionRepository:
         )
         return result.scalar() or 0
 
+    async def get_daily_stats(self, user_id: int, since: datetime) -> list[tuple[str, int, int]]:
+        """Retorna (dia, nº de sessões, minutos) das sessões concluídas desde `since`."""
+        day = func.date(StudySession.ended_at)
+        result = await self.db.execute(
+            select(
+                day,
+                func.count(StudySession.id),
+                func.coalesce(func.sum(StudySession.duration_min), 0),
+            )
+            .where(
+                and_(
+                    StudySession.user_id == user_id,
+                    StudySession.completed == True,
+                    StudySession.ended_at >= since,
+                )
+            )
+            .group_by(day)
+        )
+        return [(str(row[0]), int(row[1]), int(row[2] or 0)) for row in result.all()]
+
+    async def get_in_period(
+        self, user_id: int, since: datetime, limit: int = 50
+    ) -> list[StudySession]:
+        result = await self.db.execute(
+            select(StudySession)
+            .where(
+                and_(
+                    StudySession.user_id == user_id,
+                    StudySession.completed == True,
+                    StudySession.ended_at >= since,
+                )
+            )
+            .order_by(StudySession.ended_at.desc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
 
 class JournalRepository:
     def __init__(self, db: AsyncSession):
@@ -138,6 +219,26 @@ class JournalRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_daily_counts(self, user_id: int, since: datetime) -> list[tuple[str, int]]:
+        day = func.date(JournalEntry.created_at)
+        result = await self.db.execute(
+            select(day, func.count(JournalEntry.id))
+            .where(and_(JournalEntry.user_id == user_id, JournalEntry.created_at >= since))
+            .group_by(day)
+        )
+        return [(str(row[0]), int(row[1])) for row in result.all()]
+
+    async def get_in_period(
+        self, user_id: int, since: datetime, limit: int = 50
+    ) -> list[JournalEntry]:
+        result = await self.db.execute(
+            select(JournalEntry)
+            .where(and_(JournalEntry.user_id == user_id, JournalEntry.created_at >= since))
+            .order_by(JournalEntry.created_at.desc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
 
 class XPRepository:
     def __init__(self, db: AsyncSession):
@@ -154,6 +255,61 @@ class XPRepository:
             select(func.coalesce(func.sum(XPEvent.amount), 0)).where(XPEvent.user_id == user_id)
         )
         return result.scalar() or 0
+
+
+class CommitRepository:
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+    async def get_existing_shas(self, user_id: int, shas: list[str]) -> set[str]:
+        if not shas:
+            return set()
+        result = await self.db.execute(
+            select(Commit.sha).where(and_(Commit.user_id == user_id, Commit.sha.in_(shas)))
+        )
+        return set(result.scalars().all())
+
+    async def create_many(self, commits: list[Commit]) -> list[Commit]:
+        self.db.add_all(commits)
+        await self.db.commit()
+        for commit in commits:
+            await self.db.refresh(commit)
+        return commits
+
+    async def count_by_user(self, user_id: int) -> int:
+        result = await self.db.execute(
+            select(func.count(Commit.id)).where(Commit.user_id == user_id)
+        )
+        return result.scalar() or 0
+
+    async def get_recent(self, user_id: int, limit: int = 10) -> list[Commit]:
+        result = await self.db.execute(
+            select(Commit)
+            .where(Commit.user_id == user_id)
+            .order_by(Commit.committed_at.desc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
+    async def get_daily_counts(self, user_id: int, since: datetime) -> list[tuple[str, int]]:
+        day = func.date(Commit.committed_at)
+        result = await self.db.execute(
+            select(day, func.count(Commit.id))
+            .where(and_(Commit.user_id == user_id, Commit.committed_at >= since))
+            .group_by(day)
+        )
+        return [(str(row[0]), int(row[1])) for row in result.all()]
+
+    async def get_in_period(
+        self, user_id: int, since: datetime, limit: int = 50
+    ) -> list[Commit]:
+        result = await self.db.execute(
+            select(Commit)
+            .where(and_(Commit.user_id == user_id, Commit.committed_at >= since))
+            .order_by(Commit.committed_at.desc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
 
 
 class UserStatsRepository:

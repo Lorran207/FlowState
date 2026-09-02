@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { authApi } from '../lib/api';
 import { useAuthStore } from '../hooks/useAuthStore';
+import GitHubLoginButton from '../components/GitHubLoginButton';
 
 export default function Register() {
   const navigate = useNavigate();
@@ -121,6 +122,7 @@ export default function Register() {
             </button>
           </div>
         </form>
+        <GitHubLoginButton label="Cadastrar com GitHub" />
         <p className="text-center text-sm text-gray-600">
           Já tem conta?{' '}
           <Link to="/login" className="font-medium text-blue-600 hover:text-blue-500">

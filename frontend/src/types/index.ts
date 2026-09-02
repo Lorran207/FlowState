@@ -2,6 +2,7 @@ export interface User {
   id: number;
   email: string;
   name: string;
+  github_username: string | null;
   created_at: string;
 }
 
@@ -53,4 +54,41 @@ export interface Token {
   access_token: string;
   refresh_token: string;
   token_type: string;
+}
+
+export interface GitHubStatus {
+  connected: boolean;
+  username: string | null;
+  commit_count: number;
+}
+
+export interface GitHubCommit {
+  id: number;
+  user_id: number;
+  sha: string;
+  message: string;
+  repo_name: string;
+  url: string;
+  committed_at: string;
+}
+
+export type FeedItemType = 'pomodoro' | 'journal' | 'commit';
+
+export interface FeedItem {
+  type: FeedItemType;
+  title: string;
+  description: string | null;
+  url: string | null;
+  timestamp: string;
+}
+
+export interface HeatmapDay {
+  date: string;
+  count: number;
+  minutes: number;
+}
+
+export interface SyncResult {
+  new_commits: number;
+  total_commits: number;
 }

@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from secrets import token_hex
 
 import bcrypt
 from jose import JWTError, jwt
@@ -44,3 +45,31 @@ def decode_token(token: str) -> dict | None:
         return dict(payload)
     except JWTError:
         return None
+
+
+def create_oauth_state(user_id: int | None = None) -> str:
+    """JWT assinado como `state` do fluxo OAuth do GitHub.
+
+    Stateless e com validade curta, evita CSRF no callback e carrega
+    opcionalmente o usuário logado (para "conectar GitHub" na conta existente).
+    """
+    to_encode: dict = {
+        "type": "oauth_state",
+        "nonce": token_hex(8),
+        "exp": datetime.now(UTC) + timedelta(minutes=10),
+    }
+    if user_id is not None:
+        to_encode["uid"] = user_id
+    return str(jwt.encode(to_encode, settings.jwt_secret, algorithm=settings.jwt_algorithm))
+
+
+def verify_oauth_state(state: str) -> int | None:
+    """Valida o state do OAuth. Retorna o user_id embutido ou None se válido sem usuário.
+
+    Levanta ValueError se o state for inválido/expirado.
+    """
+    payload = decode_token(state)
+    if not payload or payload.get("type") != "oauth_state":
+        raise ValueError("Invalid OAuth state")
+    uid = payload.get("uid")
+    return int(uid) if uid is not None else None

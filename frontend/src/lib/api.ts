@@ -1,7 +1,7 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 import type { Token } from '../types';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 const api = axios.create({
   baseURL: API_URL,
@@ -126,6 +126,22 @@ export const journalApi = {
 
 export const dashboardApi = {
   get: () => api.get('/dashboard'),
+};
+
+export const githubApi = {
+  status: () => api.get('/github/status'),
+  sync: () => api.post('/github/sync'),
+  disconnect: () => api.delete('/github/disconnect'),
+  commits: (limit = 10) => api.get('/github/commits', { params: { limit } }),
+  authorizeUrl: (accessToken?: string | null) => {
+    const params = accessToken ? `?t=${encodeURIComponent(accessToken)}` : '';
+    return `${API_URL}/auth/github/authorize${params}`;
+  },
+};
+
+export const activityApi = {
+  feed: (days = 14, limit = 50) => api.get('/activity/feed', { params: { days, limit } }),
+  heatmap: (days = 182) => api.get('/activity/heatmap', { params: { days } }),
 };
 
 export default api;

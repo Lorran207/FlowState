@@ -21,6 +21,7 @@ class UserLogin(BaseModel):
 
 class UserResponse(UserBase):
     id: int
+    github_username: str | None = None
     created_at: datetime
 
     class Config:
@@ -132,3 +133,45 @@ class DashboardResponse(BaseModel):
     recent_sessions: list[StudySessionResponse]
     recent_tasks: list[TaskResponse]
     weekly_minutes: int
+
+
+class CommitResponse(BaseModel):
+    id: int
+    user_id: int
+    sha: str
+    message: str
+    repo_name: str
+    url: str
+    committed_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class GitHubStatusResponse(BaseModel):
+    connected: bool
+    username: str | None = None
+    commit_count: int = 0
+
+
+class AuthorizeUrlResponse(BaseModel):
+    url: str
+
+
+class SyncResultResponse(BaseModel):
+    new_commits: int
+    total_commits: int
+
+
+class FeedItem(BaseModel):
+    type: str  # "pomodoro" | "journal" | "task" | "commit"
+    title: str
+    description: str | None = None
+    url: str | None = None
+    timestamp: datetime
+
+
+class HeatmapDay(BaseModel):
+    date: str  # YYYY-MM-DD
+    count: int
+    minutes: int
